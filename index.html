@@ -113,6 +113,28 @@ body { font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; color: #1
   font-weight: 600;
 }
 
+/* VS POS */
+.vs-pos { padding: 80px 20px; background: #fff; }
+.vs-pos h2 { text-align: center; font-size: 30px; margin-bottom: 8px; }
+.vs-pos .sub { text-align: center; color: #666; margin-bottom: 50px; font-size: 16px; }
+.vs-table { max-width: 800px; margin: 0 auto; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }
+.vs-table table { width: 100%; border-collapse: collapse; }
+.vs-table thead tr { background: #1a1a2e; color: white; }
+.vs-table thead td { padding: 16px 20px; font-size: 15px; font-weight: 700; text-align: center; }
+.vs-table thead td:first-child { text-align: left; }
+.vs-table tbody tr { border-bottom: 1px solid #f0f0f0; }
+.vs-table tbody tr:last-child { border-bottom: none; }
+.vs-table tbody tr:nth-child(even) { background: #f8f9fa; }
+.vs-table tbody td { padding: 14px 20px; font-size: 14px; text-align: center; }
+.vs-table tbody td:first-child { text-align: left; font-weight: 600; color: #444; }
+.vs-bad { color: #c0392b; font-weight: 700; }
+.vs-good { color: #00a885; font-weight: 700; }
+.vs-highlight { background: #e8f8f5 !important; }
+.vs-saving { text-align: center; margin-top: 28px; }
+.vs-saving-box { display: inline-block; background: linear-gradient(135deg, #1a1a2e, #0f3460); color: white; border-radius: 12px; padding: 20px 40px; }
+.vs-saving-box .amount { font-size: 32px; font-weight: 800; color: #00d4aa; }
+.vs-saving-box .label { font-size: 14px; opacity: 0.8; margin-top: 4px; }
+
 /* DEMO */
 .demo { background: #1a1a2e; padding: 80px 20px; text-align: center; color: white; }
 .demo h2 { font-size: 30px; margin-bottom: 12px; }
@@ -304,6 +326,71 @@ footer {
       <h3>Google Sheets 기반</h3>
       <p>별도 프로그램 설치 불필요. 인터넷만 되면 PC/핸드폰 어디서든 접속 가능. 데이터 자동 백업.</p>
       <span class="feat-tag">설치 불필요</span>
+    </div>
+  </div>
+</section>
+
+<!-- VS POS -->
+<section class="vs-pos">
+  <h2>왜 POS 대신 이걸 써야 하나요?</h2>
+  <p class="sub">클로버, Square, Lightspeed... 월 구독료 내면서 불편하게 쓰고 계신가요?</p>
+  <div class="vs-table">
+    <table>
+      <thead>
+        <tr>
+          <td>비교 항목</td>
+          <td>일반 POS 시스템</td>
+          <td>뷰티 재고관리 시스템</td>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>비용</td>
+          <td class="vs-bad">월 $50~$200 구독료</td>
+          <td class="vs-good vs-highlight">$499 한 번만 ✓</td>
+        </tr>
+        <tr>
+          <td>1년 총 비용</td>
+          <td class="vs-bad">$600~$2,400/년</td>
+          <td class="vs-good vs-highlight">$499 (추가 비용 없음) ✓</td>
+        </tr>
+        <tr>
+          <td>설치 기기</td>
+          <td class="vs-bad">전용 단말기 필요</td>
+          <td class="vs-good vs-highlight">PC·핸드폰 어디서나 ✓</td>
+        </tr>
+        <tr>
+          <td>언어</td>
+          <td class="vs-bad">영어 위주</td>
+          <td class="vs-good vs-highlight">한국어 완전 지원 ✓</td>
+        </tr>
+        <tr>
+          <td>도매 인보이스</td>
+          <td class="vs-bad">소매 영수증만 지원</td>
+          <td class="vs-good vs-highlight">도매 PDF 인보이스 자동생성 ✓</td>
+        </tr>
+        <tr>
+          <td>거래처 관리</td>
+          <td class="vs-bad">B2C 소매 위주</td>
+          <td class="vs-good vs-highlight">뷰티 도매 B2B 특화 ✓</td>
+        </tr>
+        <tr>
+          <td>커스터마이징</td>
+          <td class="vs-bad">거의 불가능</td>
+          <td class="vs-good vs-highlight">내 업체에 맞게 수정 가능 ✓</td>
+        </tr>
+        <tr>
+          <td>문제 발생 시</td>
+          <td class="vs-bad">영어 콜센터, 긴 대기</td>
+          <td class="vs-good vs-highlight">카카오톡 바로 연락 ✓</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="vs-saving">
+    <div class="vs-saving-box">
+      <div class="amount">최대 $1,900 절약</div>
+      <div class="label">POS 월 $200 기준 1년 대비 — 2년 차부터는 전액 절약</div>
     </div>
   </div>
 </section>
