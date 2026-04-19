@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>소명교회 헌금 계산기</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  background: #f0f4f8;
+  color: #1a1a2e;
+  min-height: 100vh;
+}
+
+header {
+  background: #1a1a2e;
+  color: white;
+  padding: 20px;
+  text-align: center;
+}
+header h1 { font-size: 24px; font-weight: 800; }
+header p { font-size: 13px; color: rgba(255,255,255,0.6); margin-top: 4px; }
+
+.container { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+
+/* Entry form */
+.entry-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.entry-card h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: #1a1a2e;
+  border-bottom: 2px solid #e8f4f8;
+  padding-bottom: 10px;
+}
+
+.name-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+.name-row label { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.name-row input {
+  flex: 1;
+  border: 1.5px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.name-row input:focus { outline: none; border-color: #00d4aa; }
+
+.payment-row {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+.payment-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.payment-option input[type="radio"] { accent-color: #00d4aa; width: 16px; height: 16px; }
+#checkNoField {
+  border: 1.5px solid #ddd;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  width: 120px;
+  font-family: inherit;
+}
+#checkNoField:focus { outline: none; border-color: #00d4aa; }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+@media (max-width: 500px) { .grid { grid-template-columns: 1fr; } }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  letter-spacing: 0.3px;
+}
+.field label span { font-size: 11px; color: #999; font-weight: 400; }
+.field input {
+  border: 1.5px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  text-align: right;
+}
+.field input:focus { outline: none; border-color: #00d4aa; }
+.field input::placeholder { color: #ccc; font-size: 13px; }
+
+.btn-add {
+  width: 100%;
+  background: #1a1a2e;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-family: inherit;
+}
+.btn-add:hover { background: #0f3460; }
+.btn-add:active { transform: scale(0.99); }
+
+/* Summary totals */
+.totals-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.totals-card h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #e8f4f8;
+  padding-bottom: 10px;
+}
+.totals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.total-item {
+  background: #f8fafb;
+  border-radius: 10px;
+  padding: 12px 16px;
+  border-left: 4px solid #00d4aa;
+}
+.total-item .label { font-size: 11px; color: #888; font-weight: 600; letter-spacing: 0.3px; }
+.total-item .value { font-size: 20px; font-weight: 800; color: #1a1a2e; margin-top: 4px; }
+.total-item.highlight { border-left-color: #0f3460; background: #eef2ff; }
+.total-item.highlight .value { color: #0f3460; font-size: 24px; }
+
+.cash-check-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 0;
+}
+.cash-check-item {
+  flex: 1;
+  background: #fff8e1;
+  border-radius: 10px;
+  padding: 12px 16px;
+  border-left: 4px solid #f59e0b;
+  text-align: center;
+}
+.cash-check-item .label { font-size: 11px; color: #888; font-weight: 600; }
+.cash-check-item .value { font-size: 18px; font-weight: 800; color: #d97706; margin-top: 4px; }
+
+/* Entries list */
+.entries-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.entries-card h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #e8f4f8;
+  padding-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.entry-count {
+  background: #1a1a2e;
+  color: white;
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.entry-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  background: #f8fafb;
+  gap: 8px;
+}
+.entry-row:hover { background: #eef2ff; }
+.entry-row .en-name { font-weight: 700; min-width: 90px; }
+.entry-row .en-method { font-size: 11px; color: #888; min-width: 60px; }
+.entry-row .en-details { flex: 1; color: #555; font-size: 12px; line-height: 1.6; }
+.entry-row .en-total { font-weight: 800; color: #0f3460; min-width: 70px; text-align: right; }
+.entry-row .btn-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #ccc;
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.entry-row .btn-delete:hover { background: #fee2e2; color: #ef4444; }
+
+.no-entries {
+  text-align: center;
+  color: #bbb;
+  padding: 30px;
+  font-size: 14px;
+}
+
+.btn-export {
+  width: 100%;
+  background: #00d4aa;
+  color: #1a1a2e;
+  border: none;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-family: inherit;
+  margin-bottom: 12px;
+}
+.btn-export:hover { background: #00bfa5; }
+
+.btn-clear {
+  width: 100%;
+  background: white;
+  color: #ef4444;
+  border: 2px solid #ef4444;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn-clear:hover { background: #fee2e2; }
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: #1a1a2e;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: transform 0.3s;
+  z-index: 999;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>소명교회 헌금 계산기</h1>
+  <p>SMC Offering Calculator</p>
+</header>
+
+<div class="container">
+
+  <!-- Entry Form -->
+  <div class="entry-card">
+    <h2>헌금 입력</h2>
+
+    <div class="name-row">
+      <label>이름 (부부)</label>
+      <input type="text" id="nameInput" placeholder="성함을 입력하세요" />
+    </div>
+
+    <div class="payment-row">
+      <label class="payment-option">
+        <input type="radio" name="payMethod" value="cash" checked> 현금 Cash
+      </label>
+      <label class="payment-option">
+        <input type="radio" name="payMethod" value="check"> 수표 Check No.
+        <input type="text" id="checkNoField" placeholder="번호" onclick="document.querySelector('[value=check]').checked=true" />
+      </label>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label>십일조 <span>TITHE</span></label>
+        <input type="number" id="f_tithe" min="0" step="1" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>감사헌금 <span>THANKS</span></label>
+        <input type="number" id="f_thanks" min="0" step="1" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>주정헌금 <span>WEEKLY</span></label>
+        <input type="number" id="f_weekly" min="0" step="1" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>기타헌금 <span>OTHERS</span></label>
+        <input type="number" id="f_others" min="0" step="1" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>주일헌금 <span>SUNDAY</span></label>
+        <input type="number" id="f_sunday" min="0" step="1" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>건축헌금 <span>BUILDING</span></label>
+        <input type="number" id="f_building" min="0" step="1" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>선교헌금 <span>MISSION</span></label>
+        <input type="number" id="f_mission" min="0" step="1" placeholder="0" />
+      </div>
+    </div>
+
+    <button class="btn-add" onclick="addEntry()">+ 추가하기</button>
+  </div>
+
+  <!-- Totals Summary -->
+  <div class="totals-card">
+    <h2>합계 Summary</h2>
+    <div class="totals-grid">
+      <div class="total-item">
+        <div class="label">십일조 TITHE</div>
+        <div class="value" id="t_tithe">$0</div>
+      </div>
+      <div class="total-item">
+        <div class="label">감사헌금 THANKS</div>
+        <div class="value" id="t_thanks">$0</div>
+      </div>
+      <div class="total-item">
+        <div class="label">주정헌금 WEEKLY</div>
+        <div class="value" id="t_weekly">$0</div>
+      </div>
+      <div class="total-item">
+        <div class="label">기타헌금 OTHERS</div>
+        <div class="value" id="t_others">$0</div>
+      </div>
+      <div class="total-item">
+        <div class="label">주일헌금 SUNDAY</div>
+        <div class="value" id="t_sunday">$0</div>
+      </div>
+      <div class="total-item">
+        <div class="label">건축헌금 BUILDING</div>
+        <div class="value" id="t_building">$0</div>
+      </div>
+      <div class="total-item">
+        <div class="label">선교헌금 MISSION</div>
+        <div class="value" id="t_mission">$0</div>
+      </div>
+      <div class="total-item highlight">
+        <div class="label">총합계 TOTAL</div>
+        <div class="value" id="t_grand">$0</div>
+      </div>
+    </div>
+    <div class="cash-check-row">
+      <div class="cash-check-item">
+        <div class="label">현금 CASH</div>
+        <div class="value" id="t_cash">$0</div>
+      </div>
+      <div class="cash-check-item">
+        <div class="label">수표 CHECK</div>
+        <div class="value" id="t_check">$0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Entries List -->
+  <div class="entries-card">
+    <h2>
+      입력 목록
+      <span class="entry-count" id="entryCount">0건</span>
+    </h2>
+    <div id="entriesList"><div class="no-entries">아직 입력된 헌금이 없습니다</div></div>
+  </div>
+
+  <button class="btn-export" onclick="exportCSV()">CSV로 내보내기 (엑셀)</button>
+  <button class="btn-clear" onclick="clearAll()">전체 초기화</button>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const FIELDS = ['tithe','weekly','sunday','building','mission','thanks','others'];
+const LABELS = {
+  tithe:'십일조', weekly:'주정헌금', sunday:'주일헌금',
+  building:'건축헌금', mission:'선교헌금', thanks:'감사헌금', others:'기타헌금'
+};
+
+let entries = JSON.parse(localStorage.getItem('smcOfferings') || '[]');
+
+function fmt(n) {
+  return n === 0 ? '$0' : '$' + n.toLocaleString();
+}
+
+function addEntry() {
+  const name = document.getElementById('nameInput').value.trim() || '(이름없음)';
+  const method = document.querySelector('[name=payMethod]:checked').value;
+  const checkNo = document.getElementById('checkNoField').value.trim();
+
+  const amounts = {};
+  let total = 0;
+  for (const f of FIELDS) {
+    const v = parseFloat(document.getElementById('f_' + f).value) || 0;
+    amounts[f] = v;
+    total += v;
+  }
+
+  if (total === 0) { showToast('금액을 하나 이상 입력하세요'); return; }
+
+  entries.push({ name, method, checkNo, amounts, total, ts: Date.now() });
+  save();
+  render();
+  resetForm();
+  showToast(name + ' 추가 완료 (' + fmt(total) + ')');
+}
+
+function deleteEntry(idx) {
+  entries.splice(idx, 1);
+  save();
+  render();
+}
+
+function clearAll() {
+  if (!confirm('전체 초기화하시겠습니까?')) return;
+  entries = [];
+  save();
+  render();
+}
+
+function resetForm() {
+  document.getElementById('nameInput').value = '';
+  document.getElementById('checkNoField').value = '';
+  document.querySelector('[value=cash]').checked = true;
+  for (const f of FIELDS) document.getElementById('f_' + f).value = '';
+  document.getElementById('nameInput').focus();
+}
+
+function save() {
+  localStorage.setItem('smcOfferings', JSON.stringify(entries));
+}
+
+function render() {
+  // Totals
+  const totals = {};
+  for (const f of FIELDS) totals[f] = 0;
+  let grand = 0, cashTotal = 0, checkTotal = 0;
+
+  for (const e of entries) {
+    for (const f of FIELDS) totals[f] += e.amounts[f] || 0;
+    grand += e.total;
+    if (e.method === 'cash') cashTotal += e.total;
+    else checkTotal += e.total;
+  }
+
+  for (const f of FIELDS) document.getElementById('t_' + f).textContent = fmt(totals[f]);
+  document.getElementById('t_grand').textContent = fmt(grand);
+  document.getElementById('t_cash').textContent = fmt(cashTotal);
+  document.getElementById('t_check').textContent = fmt(checkTotal);
+  document.getElementById('entryCount').textContent = entries.length + '건';
+
+  // List
+  const list = document.getElementById('entriesList');
+  if (entries.length === 0) {
+    list.innerHTML = '<div class="no-entries">아직 입력된 헌금이 없습니다</div>';
+    return;
+  }
+
+  list.innerHTML = entries.map((e, i) => {
+    const details = FIELDS
+      .filter(f => e.amounts[f] > 0)
+      .map(f => LABELS[f] + ' ' + fmt(e.amounts[f]))
+      .join(' · ');
+    const methodLabel = e.method === 'cash'
+      ? '현금'
+      : '수표' + (e.checkNo ? ' #' + e.checkNo : '');
+    return `<div class="entry-row">
+      <span class="en-name">${e.name}</span>
+      <span class="en-method">${methodLabel}</span>
+      <span class="en-details">${details}</span>
+      <span class="en-total">${fmt(e.total)}</span>
+      <button class="btn-delete" onclick="deleteEntry(${i})">✕</button>
+    </div>`;
+  }).reverse().join('');  // newest first
+}
+
+function exportCSV() {
+  if (entries.length === 0) { showToast('내보낼 데이터가 없습니다'); return; }
+
+  const headers = ['이름', '납부방법', '수표번호', '십일조', '주정헌금', '주일헌금', '건축헌금', '선교헌금', '감사헌금', '기타헌금', '합계'];
+  const rows = entries.map(e => [
+    e.name,
+    e.method === 'cash' ? '현금' : '수표',
+    e.checkNo || '',
+    e.amounts.tithe || 0,
+    e.amounts.weekly || 0,
+    e.amounts.sunday || 0,
+    e.amounts.building || 0,
+    e.amounts.mission || 0,
+    e.amounts.thanks || 0,
+    e.amounts.others || 0,
+    e.total
+  ]);
+
+  // Totals row
+  const totRow = ['합계', '', ''];
+  for (const f of FIELDS) totRow.push(entries.reduce((s, e) => s + (e.amounts[f]||0), 0));
+  totRow.push(entries.reduce((s, e) => s + e.total, 0));
+  rows.push(totRow);
+
+  const csv = [headers, ...rows].map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const date = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = 'SMC_헌금_' + date + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSV 다운로드 완료');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// Enter key support
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+    const inputs = [...document.querySelectorAll('.entry-card input')];
+    const idx = inputs.indexOf(e.target);
+    if (idx < inputs.length - 1) inputs[idx + 1].focus();
+    else addEntry();
+  }
+});
+
+render();
+</script>
+</body>
+</html>
