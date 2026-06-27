@@ -1,0 +1,6 @@
+# Python build artifacts
+__pycache__/
+*.py[cod]
+
+# Runtime data
+dropoff_log.csv
