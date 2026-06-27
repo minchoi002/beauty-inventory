@@ -135,21 +135,31 @@ def build_zpl(tracking: str, carrier: str) -> str:
 ^XZ"""
 
 
-def build_amazon_zpl(return_id: str, item: str = "") -> str:
-    """Amazon return drop-off receipt with a scannable QR of the return id."""
+def build_amazon_zpl(return_id: str, item: str = "", qr_payload: str = "") -> str:
+    """Amazon return drop-off slip.
+
+    The printed QR encodes the FULL original Amazon payload (``qr_payload``)
+    so it stays identical to the customer's QR and can be scanned at the UPS
+    counter to accept the return. The return id / item are printed as plain
+    text for the store's own reference. Falls back to the return id if no raw
+    payload was supplied.
+    """
     now      = datetime.now()
     date_str = now.strftime("%m/%d/%Y")
     time_str = now.strftime("%I:%M %p")
 
-    # Optional item line (wraps up to 3 lines via ^FB field block).
+    qr_data = qr_payload or return_id
+
+    # Optional item line (wraps up to 2 lines via ^FB field block).
     item_block = (
         f"^FO40,395^A0N,26,26^FDItem :^FS\n"
-        f"^FO40,430^A0N,24,24^FB732,3,0,L^FD{item}^FS\n"
+        f"^FO40,430^A0N,24,24^FB732,2,0,L^FD{item}^FS\n"
         if item else ""
     )
 
     # 4 × 6 inch @ 203 DPI  →  812 × 1218 dots
-    # ^BQ = QR code (model 2). ^FDQA, prefix = error-correction Q, auto input.
+    # ^BQ = QR code (model 2), magnification 5. ^FDMA, = error-correction M,
+    # automatic input. The whole Amazon payload is re-encoded here.
     return f"""^XA
 ^PW812
 ^LL1218
@@ -158,7 +168,7 @@ def build_amazon_zpl(return_id: str, item: str = "") -> str:
 ^FO40,40^A0N,55,55^FD{COMPANY_NAME}^FS
 
 ^FO40,110^GB732,52,52^FS
-^FO40,118^A0N,38,38^FR^FDAMAZON RETURN RECEIVED^FS
+^FO40,118^A0N,38,38^FR^FDAMAZON RETURN^FS
 
 ^FO40,185^GB732,3,3^FS
 
@@ -168,17 +178,13 @@ def build_amazon_zpl(return_id: str, item: str = "") -> str:
 ^FO40,305^A0N,28,28^FDReturn ID :^FS
 ^FO40,340^A0N,32,32^FD{return_id}^FS
 {item_block}
-^FO260,545^BQN,2,7^FDQA,{return_id}^FS
+^FO40,510^A0N,26,26^FDScan this QR at UPS to drop off:^FS
+^FO180,555^BQN,2,5^FDMA,{qr_data}^FS
 
-^FO40,815^GB732,3,3^FS
+^FO40,1010^GB732,3,3^FS
 
-^FO40,835^A0N,26,26^FDYour Amazon return has been dropped off.^FS
-^FO40,870^A0N,26,26^FDKeep this slip as proof of drop-off.^FS
-
-^FO40,925^GB732,3,3^FS
-
-^FO40,945^A0N,24,24^FDQuestions? {COMPANY_PHONE}^FS
-^FO40,980^A0N,24,24^FD{COMPANY_ADDR}^FS
+^FO40,1030^A0N,24,24^FDQuestions? {COMPANY_PHONE}^FS
+^FO40,1065^A0N,24,24^FD{COMPANY_ADDR}^FS
 
 ^XZ"""
 
@@ -311,7 +317,7 @@ class App:
             return_id, item = parse_amazon_return(raw)
             label    = "Amazon Return"
             logged   = return_id
-            zpl      = build_amazon_zpl(return_id, item)
+            zpl      = build_amazon_zpl(return_id, item, raw)
             ok_text  = "✓  Amazon Return Logged!"
             ok_color = self.ORANGE
         else:
