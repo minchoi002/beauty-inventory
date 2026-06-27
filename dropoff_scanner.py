@@ -148,8 +148,25 @@ def hangul_to_qwerty(text: str) -> str:
     return "".join(out)
 
 
+def disable_ime_process() -> None:
+    """Turn the Windows IME off for this whole process before any window opens.
+
+    ImmDisableIME(-1) is the most reliable switch: with no IME attached, a
+    Korean keyboard layout falls back to plain US QWERTY, so scanner input
+    arrives as raw ASCII with correct case. Must run before Tk creates its
+    windows. No-op on non-Windows or if the API is unavailable.
+    """
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        ctypes.windll.imm32.ImmDisableIME(-1)
+    except Exception:
+        pass
+
+
 def disable_ime(*widgets) -> None:
-    """Detach the Windows IME from our windows so scans arrive as raw ASCII.
+    """Belt-and-suspenders: also detach any IME context from our windows.
 
     No-op on non-Windows or when the IME APIs aren't available.
     """
@@ -435,6 +452,7 @@ class App:
 # ── entry point ───────────────────────────────────────────
 
 if __name__ == "__main__":
+    disable_ime_process()          # must run before any window is created
     root = tk.Tk()
     App(root)
     root.mainloop()
