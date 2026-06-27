@@ -59,18 +59,40 @@ def detect_carrier(raw: str) -> str:
 
 
 def is_amazon_return(raw: str) -> bool:
-    """Heuristic auto-detect for Amazon label-free / Hub return QR codes.
+    """Auto-detect Amazon label-free / box-free return QR codes.
 
-    Amazon return QR codes vary a lot in format, so this only catches the
-    obvious cases. For everything else the operator turns on Amazon Return
-    mode (F2) and the scan is recorded as a return regardless of content.
+    Amazon "No Box No Label" returns (dropped at The UPS Store, Whole Foods,
+    Kohl's, etc.) encode a pipe-delimited string that begins with the marker
+    ``AFNLFBF``. We also catch the generic ``AMAZON RETURN`` / ``AMZN`` text.
+    Anything else is left to manual Amazon Return mode (F2).
     """
     u = raw.strip().upper()
-    if "AMZN" in u or "AMAZON" in u:
+    if u.startswith("AFNLFBF"):
         return True
-    # Amazon Hub return codes are frequently bare alphanumeric tokens with no
-    # carrier prefix; we leave those to manual mode to avoid false positives.
+    if "AMAZON RETURN" in u or "AMZN" in u:
+        return True
     return False
+
+
+def parse_amazon_return(raw: str):
+    """Pull a clean (return_id, item_description) out of an Amazon QR string.
+
+    The QR payload looks like::
+
+        AFNLFBF|<return_id>|01|<return center>|...|<qty>|<item name>|
+
+    For anything that isn't the recognized pipe format we fall back to using
+    the raw scan as the return id with no item description.
+    """
+    parts = [p.strip() for p in raw.split("|")]
+    if len(parts) >= 2 and parts[0].upper() == "AFNLFBF":
+        return_id = parts[1]
+        nonempty  = [p for p in parts if p]
+        item      = nonempty[-1] if nonempty else ""
+        if item == return_id:           # no separate item field present
+            item = ""
+        return return_id, item
+    return raw, ""
 
 
 def build_zpl(tracking: str, carrier: str) -> str:
@@ -113,15 +135,17 @@ def build_zpl(tracking: str, carrier: str) -> str:
 ^XZ"""
 
 
-def build_amazon_zpl(code: str, carrier: str = "") -> str:
-    """Amazon return drop-off receipt with a scannable QR of the return code."""
+def build_amazon_zpl(return_id: str, item: str = "") -> str:
+    """Amazon return drop-off receipt with a scannable QR of the return id."""
     now      = datetime.now()
     date_str = now.strftime("%m/%d/%Y")
     time_str = now.strftime("%I:%M %p")
 
-    carrier_line = (
-        f"^FO40,275^A0N,28,28^FDVia :^FS^FO220,275^A0N,28,28^FD{carrier}^FS\n"
-        if carrier else ""
+    # Optional item line (wraps up to 3 lines via ^FB field block).
+    item_block = (
+        f"^FO40,395^A0N,26,26^FDItem :^FS\n"
+        f"^FO40,430^A0N,24,24^FB732,3,0,L^FD{item}^FS\n"
+        if item else ""
     )
 
     # 4 × 6 inch @ 203 DPI  →  812 × 1218 dots
@@ -140,21 +164,21 @@ def build_amazon_zpl(code: str, carrier: str = "") -> str:
 
 ^FO40,205^A0N,28,28^FDDate :^FS^FO220,205^A0N,28,28^FD{date_str}^FS
 ^FO40,245^A0N,28,28^FDTime :^FS^FO220,245^A0N,28,28^FD{time_str}^FS
-{carrier_line}
-^FO40,325^A0N,28,28^FDReturn Code :^FS
-^FO40,360^A0N,30,30^FD{code}^FS
 
-^FO260,415^BQN,2,8^FDQA,{code}^FS
-
-^FO40,705^GB732,3,3^FS
-
-^FO40,725^A0N,26,26^FDYour Amazon return has been dropped off.^FS
-^FO40,760^A0N,26,26^FDKeep this slip as proof of drop-off.^FS
+^FO40,305^A0N,28,28^FDReturn ID :^FS
+^FO40,340^A0N,32,32^FD{return_id}^FS
+{item_block}
+^FO260,545^BQN,2,7^FDQA,{return_id}^FS
 
 ^FO40,815^GB732,3,3^FS
 
-^FO40,835^A0N,24,24^FDQuestions? {COMPANY_PHONE}^FS
-^FO40,870^A0N,24,24^FD{COMPANY_ADDR}^FS
+^FO40,835^A0N,26,26^FDYour Amazon return has been dropped off.^FS
+^FO40,870^A0N,26,26^FDKeep this slip as proof of drop-off.^FS
+
+^FO40,925^GB732,3,3^FS
+
+^FO40,945^A0N,24,24^FDQuestions? {COMPANY_PHONE}^FS
+^FO40,980^A0N,24,24^FD{COMPANY_ADDR}^FS
 
 ^XZ"""
 
@@ -284,27 +308,27 @@ class App:
         amazon = self.amazon_mode or is_amazon_return(raw)
 
         if amazon:
-            carrier = detect_carrier(raw)
-            # Only annotate the carrier when we recognized a real one.
-            sub = "" if carrier == "FedEx / UPS" else carrier
-            label   = f"Amazon Return ({sub})" if sub else "Amazon Return"
-            zpl     = build_amazon_zpl(raw, sub)
-            ok_text = "✓  Amazon Return Logged!"
+            return_id, item = parse_amazon_return(raw)
+            label    = "Amazon Return"
+            logged   = return_id
+            zpl      = build_amazon_zpl(return_id, item)
+            ok_text  = "✓  Amazon Return Logged!"
             ok_color = self.ORANGE
         else:
             carrier = detect_carrier(raw)
             label   = carrier
+            logged  = raw
             zpl     = build_zpl(raw, carrier)
             ok_text = "✓  Label Printed!"
             ok_color = self.GREEN
 
         try:
             send_to_printer(zpl)
-            save_to_csv(raw, label)
+            save_to_csv(logged, label)
             self._set_status(ok_text, ok_color)
             ts = datetime.now().strftime("%I:%M %p")
-            self.log_var.set(f"[{label}]  {raw}   {ts}")
-            self.listbox.insert(0, f"{ts}  {label:18}  {raw}")
+            self.log_var.set(f"[{label}]  {logged}   {ts}")
+            self.listbox.insert(0, f"{ts}  {label:18}  {logged}")
         except Exception as exc:
             self._set_status("✗  Print Error", self.RED)
             messagebox.showerror("Print Error", str(exc))
