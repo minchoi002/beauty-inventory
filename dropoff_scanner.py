@@ -15,6 +15,7 @@ from tkinter import messagebox, ttk
 import re
 import csv
 import os
+import sys
 from datetime import datetime
 
 try:
@@ -93,6 +94,77 @@ def parse_amazon_return(raw: str):
             item = ""
         return return_id, item
     return raw, ""
+
+
+# ── Korean IME recovery ───────────────────────────────────
+# A USB scanner types its data like a keyboard. If the Windows Korean IME is
+# active, the Latin keystrokes get composed into Hangul (e.g. "AFNLFBF" -> a
+# string of jamo). disable_ime() stops that at the source; hangul_to_qwerty()
+# is a fallback that maps any Hangul that still slips through back to the keys
+# the scanner pressed, using the standard 2-set (두벌식) layout.
+
+_CHO  = list("ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ")
+_JUNG = list("ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ")
+_JONG = ["", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ",
+         "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅊ",
+         "ㅋ", "ㅌ", "ㅍ", "ㅎ"]
+
+# jamo -> QWERTY key(s). Shifted doubles preserve upper-case (ㄲ->R, ㅃ->Q ...);
+# all other letters share a key with no case info, so they default to lower.
+_JAMO_TO_KEY = {
+    "ㄱ": "r", "ㄲ": "R", "ㄴ": "s", "ㄷ": "e", "ㄸ": "E", "ㄹ": "f", "ㅁ": "a",
+    "ㅂ": "q", "ㅃ": "Q", "ㅅ": "t", "ㅆ": "T", "ㅇ": "d", "ㅈ": "w", "ㅉ": "W",
+    "ㅊ": "c", "ㅋ": "z", "ㅌ": "x", "ㅍ": "v", "ㅎ": "g",
+    "ㅏ": "k", "ㅐ": "o", "ㅑ": "i", "ㅒ": "O", "ㅓ": "j", "ㅔ": "p", "ㅕ": "u",
+    "ㅖ": "P", "ㅗ": "h", "ㅛ": "y", "ㅜ": "n", "ㅠ": "b", "ㅡ": "m", "ㅣ": "l",
+    # compound vowels / finals decompose into two keys
+    "ㅘ": "hk", "ㅙ": "ho", "ㅚ": "hl", "ㅝ": "nj", "ㅞ": "np", "ㅟ": "nl",
+    "ㅢ": "ml", "ㄳ": "rt", "ㄵ": "sw", "ㄶ": "sg", "ㄺ": "fr", "ㄻ": "fa",
+    "ㄼ": "fq", "ㄽ": "ft", "ㄾ": "fx", "ㄿ": "fv", "ㅀ": "fg", "ㅄ": "qt",
+}
+
+
+def contains_hangul(text: str) -> bool:
+    return any(0xAC00 <= ord(c) <= 0xD7A3 or 0x3131 <= ord(c) <= 0x3163
+               for c in text)
+
+
+def hangul_to_qwerty(text: str) -> str:
+    """Best-effort: undo a Korean-IME mangle of scanner input back to Latin."""
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if 0xAC00 <= code <= 0xD7A3:               # composed syllable
+            idx  = code - 0xAC00
+            out.append(_JAMO_TO_KEY.get(_CHO[idx // 588], ""))
+            out.append(_JAMO_TO_KEY.get(_JUNG[(idx % 588) // 28], ""))
+            jong = idx % 28
+            if jong:
+                out.append(_JAMO_TO_KEY.get(_JONG[jong], ""))
+        elif 0x3131 <= code <= 0x3163:             # standalone jamo
+            out.append(_JAMO_TO_KEY.get(ch, ch))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def disable_ime(*widgets) -> None:
+    """Detach the Windows IME from our windows so scans arrive as raw ASCII.
+
+    No-op on non-Windows or when the IME APIs aren't available.
+    """
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        imm32 = ctypes.windll.imm32
+        for w in widgets:
+            try:
+                imm32.ImmAssociateContext(w.winfo_id(), 0)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def build_zpl(tracking: str, carrier: str) -> str:
@@ -228,6 +300,9 @@ class App:
         root.resizable(False, False)
         root.attributes("-topmost", True)
         self._build()
+        # Keep the Korean IME from rewriting scanner keystrokes into Hangul.
+        root.update_idletasks()
+        disable_ime(root, self.entry)
         root.bind("<F2>", lambda _: self._toggle_amazon())
 
     def _build(self):
@@ -311,6 +386,13 @@ class App:
         if not raw:
             return
 
+        # Safety net: if the Korean IME slipped through and turned the scan
+        # into Hangul, convert it back to the Latin keys the scanner sent.
+        ime_fixed = False
+        if contains_hangul(raw):
+            raw = hangul_to_qwerty(raw)
+            ime_fixed = True
+
         amazon = self.amazon_mode or is_amazon_return(raw)
 
         if amazon:
@@ -332,8 +414,9 @@ class App:
             send_to_printer(zpl)
             save_to_csv(logged, label)
             self._set_status(ok_text, ok_color)
-            ts = datetime.now().strftime("%I:%M %p")
-            self.log_var.set(f"[{label}]  {logged}   {ts}")
+            ts   = datetime.now().strftime("%I:%M %p")
+            note = "  ⌨ 한글→영문 자동변환" if ime_fixed else ""
+            self.log_var.set(f"[{label}]  {logged}   {ts}{note}")
             self.listbox.insert(0, f"{ts}  {label:18}  {logged}")
         except Exception as exc:
             self._set_status("✗  Print Error", self.RED)
