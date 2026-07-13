@@ -59,11 +59,25 @@ def open_path(p):
             subprocess.Popen(["open" if sys.platform=="darwin" else "xdg-open",str(p)])
     except Exception: pass
 
-def gemini_generate(api_key, contents, model="gemini-2.5-flash"):
+# 최신 모델 우선, 종료/미지원 시 이전 모델로 자동 대체
+GEMINI_MODELS=["gemini-3.5-flash","gemini-3-flash","gemini-2.5-flash"]
+
+def gemini_generate(api_key, contents, model=None):
     """Gemini API 호출 — 신규 google-genai SDK (구 SDK는 2025-11 지원 종료)"""
     client=genai.Client(api_key=api_key)
-    r=client.models.generate_content(model=model,contents=contents)
-    return (r.text or "").strip()
+    last_err=None
+    for m in ([model] if model else GEMINI_MODELS):
+        try:
+            r=client.models.generate_content(model=m,contents=contents)
+            return (r.text or "").strip()
+        except Exception as ex:
+            last_err=ex
+            msg=str(ex).lower()
+            # 모델이 없거나 종료된 경우에만 다음 모델로 재시도
+            if "not_found" in msg or "not found" in msg or "404" in msg or "deprecated" in msg:
+                continue
+            raise
+    raise last_err
 
 def load_cfg():
     if CONFIG.exists():
