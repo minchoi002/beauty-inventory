@@ -1,4 +1,4 @@
-import sys,os,json,base64,threading,datetime,sqlite3,re,queue
+import sys,os,json,threading,datetime,sqlite3,re,queue
 from pathlib import Path
 def install(p):
     import subprocess
@@ -14,10 +14,12 @@ except ImportError:
     install("Pillow")
     from PIL import Image, ImageTk
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
 except ImportError:
-    install("google-generativeai")
-    import google.generativeai as genai
+    install("google-genai")
+    from google import genai
+    from google.genai import types as genai_types
 try:
     import openpyxl
     from openpyxl.styles import Font,PatternFill,Alignment,Border,Side
@@ -42,6 +44,7 @@ import io
 CONFIG=Path.home()/".aci.json"
 ORDER_FILE=Path.home()/".aci_order.json"
 DB_PATH=Path.home()/".aci_customers.db"
+PENDING_FILE=Path.home()/".aci_pending.json"
 
 # ── 디자인 상수 ──
 ACCENT="#1A3EFF"; FG="#1A1A2E"; BG="#FAFAFA"
@@ -56,6 +59,12 @@ def open_path(p):
             subprocess.Popen(["open" if sys.platform=="darwin" else "xdg-open",str(p)])
     except Exception: pass
 
+def gemini_generate(api_key, contents, model="gemini-2.5-flash"):
+    """Gemini API 호출 — 신규 google-genai SDK (구 SDK는 2025-11 지원 종료)"""
+    client=genai.Client(api_key=api_key)
+    r=client.models.generate_content(model=model,contents=contents)
+    return (r.text or "").strip()
+
 def load_cfg():
     if CONFIG.exists():
         try: return json.loads(CONFIG.read_text(encoding="utf-8"))
@@ -69,6 +78,16 @@ def get_next_order():
         except: pass
     return 1
 def save_next_order(n): ORDER_FILE.write_text(json.dumps({"next":n}))
+
+def load_pending():
+    """마감 전 임시 접수 목록 복원 (앱 재시작 대비)"""
+    if PENDING_FILE.exists():
+        try: return json.loads(PENDING_FILE.read_text(encoding="utf-8"))
+        except: pass
+    return []
+def save_pending(lst):
+    try: PENDING_FILE.write_text(json.dumps(lst,ensure_ascii=False),encoding="utf-8")
+    except: pass
 
 # ── DB 초기화 ──────────────────────────────────────────────
 def get_presets():
@@ -222,9 +241,22 @@ def upsert_customer(name,phone,phone2,jumin,zipcode,address,sender_name,sender_t
         freq={}
         for x in merged: freq[x]=freq.get(x,0)+1
         top=json.dumps([k for k,_ in sorted(freq.items(),key=lambda x:-x[1])[:10]],ensure_ascii=False)
-        c.execute("UPDATE customers SET name=?,phone=?,phone2=?,jumin=?,zipcode=?,address=?,sender_name=?,sender_tel=?,visit_count=?,last_visit=?,top_items=? WHERE id=?",
-                  (name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,vc+1,today,top,cid))
-        cid=cid
+        # 새 값이 비어 있으면 기존 저장값 유지 (발송인/연락처 정보 유실 방지)
+        c.execute("""UPDATE customers SET name=?,
+            phone=CASE WHEN ?='' THEN phone ELSE ? END,
+            phone2=CASE WHEN ?='' THEN phone2 ELSE ? END,
+            jumin=CASE WHEN ?='' THEN jumin ELSE ? END,
+            zipcode=CASE WHEN ?='' THEN zipcode ELSE ? END,
+            address=CASE WHEN ?='' THEN address ELSE ? END,
+            sender_name=CASE WHEN ?='' THEN sender_name ELSE ? END,
+            sender_tel=CASE WHEN ?='' THEN sender_tel ELSE ? END,
+            visit_count=?,last_visit=?,top_items=? WHERE id=?""",
+            (name,
+             phone or "",phone or "",phone2 or "",phone2 or "",
+             jumin or "",jumin or "",zipcode or "",zipcode or "",
+             address or "",address or "",
+             sender_name or "",sender_name or "",sender_tel or "",sender_tel or "",
+             vc+1,today,top,cid))
     else:
         top=json.dumps(item_names[:10],ensure_ascii=False)
         c.execute("INSERT INTO customers(name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,visit_count,last_visit,top_items) VALUES(?,?,?,?,?,?,?,?,1,?,?)",
@@ -328,9 +360,7 @@ def split_pdf(pdf_bytes,chunk_size=CHUNK_SIZE):
     return total,chunks
 
 def extract_chunk(api_key,pdf_bytes,code):
-    genai.configure(api_key=api_key)
-    m=genai.GenerativeModel("gemini-2.5-flash")
-    r=m.generate_content([{"mime_type":"application/pdf","data":base64.b64encode(pdf_bytes).decode()},
+    r_text=gemini_generate(api_key,[genai_types.Part.from_bytes(data=pdf_bytes,mime_type="application/pdf"),
         f"""ACI Express 화물신고서 PDF입니다. 각 페이지에서 데이터 추출해 JSON 배열만 반환하세요.
 [{{
   "날짜":"MM-DD-YYYY",
@@ -366,7 +396,7 @@ def extract_chunk(api_key,pdf_bytes,code):
 - " 기호만 있는 상품명은 바로 위 상품명과 동일한 내용으로 입력
 - 빈 페이지/메모 페이지 건너뜀
 - 빈칸은 "" 또는 0, JSON만 반환(마크다운 없이)"""])
-    raw=r.text.strip().replace("```json","").replace("```","").strip()
+    raw=r_text.replace("```json","").replace("```","").strip()
     try:
         res=json.loads(raw)
         return res if isinstance(res,list) else [res]
@@ -376,10 +406,7 @@ def extract_chunk(api_key,pdf_bytes,code):
         raise ValueError("파싱실패:"+raw[:300])
 
 def ask_gemini_simple(api_key, prompt):
-    genai.configure(api_key=api_key)
-    m=genai.GenerativeModel("gemini-2.5-flash")
-    r=m.generate_content(prompt)
-    return r.text.strip()
+    return gemini_generate(api_key, prompt)
 
 def fix_items(items):
     last_name=""
@@ -581,8 +608,10 @@ class DirectEntryTab(tk.Frame):
         super().__init__(parent)
         self.app=app
         self.item_rows=[]
-        self.pending_orders=[]  # 당일 배치용
+        self.pending_orders=load_pending()  # 당일 배치용 (앱 재시작 시 자동 복원)
         self.build()
+        if self.pending_orders:
+            self.lbl_count.config(text=f"오늘 접수: {len(self.pending_orders)}건 (이전 접수 복원됨)")
 
     def build(self):
         # 스크롤 가능한 캔버스
@@ -766,11 +795,9 @@ class DirectEntryTab(tk.Frame):
             hs_status.config(text="⏳",fg="#CC7700")  # 조회 중 표시
             def run():
                 try:
-                    genai.configure(api_key=api_key)
-                    m=genai.GenerativeModel("gemini-2.5-flash")
-                    r=m.generate_content(
+                    txt=gemini_generate(api_key,
                         f"다음 상품의 HS CODE 6자리 숫자만 답하세요. 설명 없이 숫자만. 상품명: {n}")
-                    code=re.sub(r"[^\d]","",r.text.strip())[:6]
+                    code=re.sub(r"[^\d]","",txt)[:6]
                     if len(code)==6:
                         self.app.after(0,lambda: (
                             vh.set(code),
@@ -968,17 +995,18 @@ class DirectEntryTab(tk.Frame):
         """공통 AI 인식 로직"""
         def run():
             try:
-                genai.configure(api_key=api_key)
-                m=genai.GenerativeModel("gemini-2.5-flash")
                 mime={"jpg":"image/jpeg","jpeg":"image/jpeg",
                       "png":"image/png","webp":"image/webp"}.get(ext.lstrip("."),"image/jpeg")
-                r=m.generate_content([
-                    {"mime_type":mime,"data":base64.b64encode(img_bytes).decode()},
+                raw=gemini_generate(api_key,[
+                    genai_types.Part.from_bytes(data=img_bytes,mime_type=mime),
                     """이 상품 사진을 보고 JSON만 반환하세요 (마크다운 없이):
 {"name":"상품명 영문 10자 이상","hs_code":"6자리 HS CODE","price":예상USD가격숫자}"""
-                ])
-                raw=r.text.strip().replace("```json","").replace("```","").strip()
-                d=json.loads(raw)
+                ]).replace("```json","").replace("```","").strip()
+                try: d=json.loads(raw)
+                except:
+                    m2=re.search(r'\{[\s\S]*\}',raw)
+                    if not m2: raise ValueError("AI 응답 파싱 실패: "+raw[:200])
+                    d=json.loads(m2.group())
                 self.app.after(0,lambda: self.add_item_row(
                     name=d.get("name",""),price=str(d.get("price","")),hs=str(d.get("hs_code",""))))
                 if callback: callback(d)
@@ -1055,6 +1083,7 @@ class DirectEntryTab(tk.Frame):
             "가로":w,"세로":l,"높이":h,"포장개수":1,"items":items
         }
         self.pending_orders.append(order)
+        save_pending(self.pending_orders)
         cnt=len(self.pending_orders)
         self.lbl_count.config(text=f"오늘 접수: {cnt}건")
         # 접수증 프린트 여부 확인
@@ -1088,7 +1117,7 @@ class DirectEntryTab(tk.Frame):
                 while os.path.exists(sp.replace(".xlsx",f"_{n}.xlsx")): n+=1
                 sp=sp.replace(".xlsx",f"_{n}.xlsx")
             rows,s_ord,e_ord=make_excel(self.pending_orders,sp,self.app.cfg.get("code","SHIPTOKOREA"))
-            self.pending_orders=[]
+            self.pending_orders=[]; save_pending([])
             self.lbl_count.config(text="오늘 접수: 0건")
             if hasattr(self.app,"stats_tab"): self.app.stats_tab.refresh()
             if messagebox.askyesno("완료",f"✅ 엑셀 저장 완료!\n\n고객: {cnt}명  |  주문: {s_ord:04d}~{e_ord:04d}\n파일: {Path(sp).name}\n\n파일을 여시겠습니까?"):
