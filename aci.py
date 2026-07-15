@@ -157,6 +157,10 @@ def init_db():
         price REAL,
         site TEXT DEFAULT 'amazon.com'
     )""")
+    # ── 마이그레이션: 발송인 주소 컬럼 추가 ──
+    ccols=[r[1] for r in c.execute("PRAGMA table_info(customers)").fetchall()]
+    if "sender_addr" not in ccols:
+        c.execute("ALTER TABLE customers ADD COLUMN sender_addr TEXT DEFAULT ''")
     # ── 마이그레이션: order_num → order_key ──
     cols=[r[1] for r in c.execute("PRAGMA table_info(imported_orders)").fetchall()]
     if "order_num" in cols and "order_key" not in cols:
@@ -169,7 +173,7 @@ def search_customers(q):
     c=conn.cursor()
     like=f"%{q}%"
     c.execute("""SELECT c.id,c.name,c.phone,c.phone2,c.zipcode,c.address,c.jumin,
-                        c.sender_name,c.sender_tel,
+                        c.sender_name,c.sender_tel,c.sender_addr,
                         COUNT(o.id) as visit_count,
                         MAX(o.order_date) as last_visit,
                         c.top_items
@@ -181,7 +185,7 @@ def search_customers(q):
     rows=c.fetchall(); conn.close()
     return rows
 
-def upsert_customer_import(name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,items_json,real_w,vol_w,order_num):
+def upsert_customer_import(name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,sender_addr,items_json,real_w,vol_w,order_num):
     """임포트 전용 - visit_count는 orders 테이블 실제 건수로 계산"""
     conn=sqlite3.connect(str(DB_PATH))
     c=conn.cursor()
@@ -215,8 +219,8 @@ def upsert_customer_import(name,phone,phone2,jumin,zipcode,address,sender_name,s
             (phone,phone2,jumin,zipcode,address,top,cid))
     else:
         top=json.dumps(item_names[:10],ensure_ascii=False)
-        c.execute("INSERT INTO customers(name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,visit_count,last_visit,top_items) VALUES(?,?,?,?,?,?,?,?,0,?,?)",
-                  (name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,today,top))
+        c.execute("INSERT INTO customers(name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,sender_addr,visit_count,last_visit,top_items) VALUES(?,?,?,?,?,?,?,?,?,0,?,?)",
+                  (name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,sender_addr,today,top))
         cid=c.lastrowid
 
     # 주문 키 임포트 기록 저장 (중복 방지)
@@ -233,7 +237,7 @@ def upsert_customer_import(name,phone,phone2,jumin,zipcode,address,sender_name,s
                   (cid,today,"",items_json,real_w,vol_w))
     conn.commit(); conn.close()
 
-def upsert_customer(name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,items_json,real_w,vol_w,order_num):
+def upsert_customer(name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,sender_addr,items_json,real_w,vol_w,order_num):
     conn=sqlite3.connect(str(DB_PATH))
     c=conn.cursor()
     today=datetime.date.today().isoformat()
@@ -268,17 +272,19 @@ def upsert_customer(name,phone,phone2,jumin,zipcode,address,sender_name,sender_t
             address=CASE WHEN ?='' THEN address ELSE ? END,
             sender_name=CASE WHEN ?='' THEN sender_name ELSE ? END,
             sender_tel=CASE WHEN ?='' THEN sender_tel ELSE ? END,
+            sender_addr=CASE WHEN ?='' THEN sender_addr ELSE ? END,
             visit_count=?,last_visit=?,top_items=? WHERE id=?""",
             (name,
              phone or "",phone or "",phone2 or "",phone2 or "",
              jumin or "",jumin or "",zipcode or "",zipcode or "",
              address or "",address or "",
              sender_name or "",sender_name or "",sender_tel or "",sender_tel or "",
+             sender_addr or "",sender_addr or "",
              vc+1,today,top,cid))
     else:
         top=json.dumps(item_names[:10],ensure_ascii=False)
-        c.execute("INSERT INTO customers(name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,visit_count,last_visit,top_items) VALUES(?,?,?,?,?,?,?,?,1,?,?)",
-                  (name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,today,top))
+        c.execute("INSERT INTO customers(name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,sender_addr,visit_count,last_visit,top_items) VALUES(?,?,?,?,?,?,?,?,?,1,?,?)",
+                  (name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,sender_addr,today,top))
         cid=c.lastrowid
     c.execute("INSERT INTO orders(customer_id,order_date,order_num,items_json,real_weight,vol_weight) VALUES(?,?,?,?,?,?)",
               (cid,today,order_num,items_json,real_w,vol_w))
@@ -315,6 +321,7 @@ def import_from_excel(path, progress_cb=None):
         address=row.get("주소") if "주소" in cols else None
         sender_name=row.get("업체명") if "업체명" in cols else None
         sender_tel=row.get("업체TEL") if "업체TEL" in cols else None
+        sender_addr=row.get("업체주소") if "업체주소" in cols else None
         order_num=row.get("주문번호") if "주문번호" in cols else None
         real_w=row.get("실무게") if "실무게" in cols else None
         vol_w=row.get("부피무게") if "부피무게" in cols else None
@@ -332,7 +339,7 @@ def import_from_excel(path, progress_cb=None):
                     skipped+=1
                 else:
                     upsert_customer_import(current["name"],current["phone"],current["phone2"],current["jumin"],
-                                    current["zipcode"],current["address"],current["sender_name"],current["sender_tel"],
+                                    current["zipcode"],current["address"],current["sender_name"],current["sender_tel"],current["sender_addr"],
                                     json.dumps(current["items"],ensure_ascii=False),current["real_w"],current["vol_w"],okey)
                     imported+=1
             current={"name":str(name).strip(),"phone":str(phone).strip() if phone else "",
@@ -342,6 +349,7 @@ def import_from_excel(path, progress_cb=None):
                      "address":str(address).strip() if address else "",
                      "sender_name":str(sender_name).strip() if sender_name else "",
                      "sender_tel":str(sender_tel).strip() if sender_tel else "",
+                     "sender_addr":str(sender_addr).strip() if sender_addr else "",
                      "real_w":real_w,"vol_w":vol_w,
                      "order_num":str(order_num).strip() if order_num and str(order_num).strip() not in ["nan","None"] else "",
                      "items":[]}
@@ -356,7 +364,7 @@ def import_from_excel(path, progress_cb=None):
             skipped+=1
         else:
             upsert_customer_import(current["name"],current["phone"],current["phone2"],current["jumin"],
-                            current["zipcode"],current["address"],current["sender_name"],current["sender_tel"],
+                            current["zipcode"],current["address"],current["sender_name"],current["sender_tel"],current["sender_addr"],
                             json.dumps(current["items"],ensure_ascii=False),current["real_w"],current["vol_w"],okey)
             imported+=1
     if progress_cb: progress_cb(100)
@@ -514,7 +522,7 @@ def make_excel(data,path,code="SHIPTOKOREA"):
         try:
             upsert_customer(s.get('수취인',''),s.get('수취인TEL',''),s.get('수취인HP',''),
                             s.get('주민번호',''),s.get('우편번호',''),s.get('주소',''),
-                            s.get('업체명',''),s.get('업체TEL',''),
+                            s.get('업체명',''),s.get('업체TEL',''),s.get('업체주소',''),
                             json.dumps(items,ensure_ascii=False),
                             s.get('실무게',0),vol if vol!="" else 0,f"{order_num:04d}")
         except: pass
@@ -556,10 +564,10 @@ def print_receipt(order):
         float(order.get('높이',0) or 0)/166,2)
     apply_w=max(float(rw) if rw else 0, float(vol) if vol else 0)
     jumin=str(order.get('주민번호',''))
-    jumin_m=jumin[:6]+"-*******" if len(jumin)>=6 else jumin
+    if re.fullmatch(r"[Pp]\d{12}",jumin): jumin_m=jumin[:5]+"********"
+    else: jumin_m=jumin[:6]+"-*******" if len(jumin)>=6 else jumin
     phone=str(order.get('수취인TEL',''))
     phone_m=re.sub(r"(\d{3})-?(\d{3,4})-?(\d{4})",lambda m:f"{m.group(1)}-{m.group(2)}-****",phone)
-    pcc=str(order.get('개인통관부호','') or "")
     html=f"""<!DOCTYPE html><html><head><meta charset='utf-8'>
     <title>ACI 접수증</title>
     <style>
@@ -583,8 +591,7 @@ def print_receipt(order):
         <div style='font-weight:bold;margin-bottom:4px'>수취인 정보</div>
         <div class='row'><span class='label'>이름</span><span>{order.get('수취인','')}</span></div>
         <div class='row'><span class='label'>전화</span><span>{phone_m}</span></div>
-        <div class='row'><span class='label'>주민번호</span><span>{jumin_m}</span></div>
-        {("<div class='row'><span class='label'>통관부호</span><span>"+pcc+"</span></div>") if pcc else ""}
+        <div class='row'><span class='label'>주민/통관부호</span><span>{jumin_m}</span></div>
         <div class='row'><span class='label'>우편번호</span><span>{order.get('우편번호','')}</span></div>
         <div class='row'><span class='label'>주소</span><span>{order.get('주소','')}</span></div>
     </div>
@@ -592,6 +599,7 @@ def print_receipt(order):
         <div style='font-weight:bold;margin-bottom:4px'>발송인 정보</div>
         <div class='row'><span class='label'>업체명</span><span>{order.get('업체명','')}</span></div>
         <div class='row'><span class='label'>전화</span><span>{order.get('업체TEL','')}</span></div>
+        <div class='row'><span class='label'>주소</span><span>{order.get('업체주소','')}</span></div>
     </div>
     <div class='section'>
         <div style='font-weight:bold;margin-bottom:4px'>박스 정보</div>
@@ -602,6 +610,7 @@ def print_receipt(order):
             <span class='label' style='margin-left:16px'>부피무게</span><span>{vol} lbs</span>
             <span class='label' style='margin-left:16px'>적용무게</span>
             <span style='font-weight:bold;color:#1A3EFF'>{apply_w} lbs</span>
+            <span class='label' style='margin-left:16px'>박스</span><span>{order.get('포장개수',1)}개</span>
         </div>
     </div>
     <table>
@@ -629,7 +638,7 @@ class DirectEntryTab(tk.Frame):
         self.pending_orders=load_pending()  # 당일 배치용 (앱 재시작 시 자동 복원)
         self.build()
         if self.pending_orders:
-            self.lbl_count.config(text=f"오늘 접수: {len(self.pending_orders)}건 (이전 접수 복원됨)")
+            self.refresh_pending_list()
 
     def build(self):
         # 스크롤 가능한 캔버스
@@ -655,12 +664,20 @@ class DirectEntryTab(tk.Frame):
         canvas.winfo_toplevel().bind_all("<Button-4>", lambda e:(setattr(e,"delta",120),_on_mousewheel(e)), add="+")
         canvas.winfo_toplevel().bind_all("<Button-5>", lambda e:(setattr(e,"delta",-120),_on_mousewheel(e)), add="+")
 
-        # ── 상단: 접수 현황 배너 ──
+        # ── 상단: 접수 현황 배너 + 오늘 접수 목록 ──
         banner=tk.Frame(self.inner)
-        banner.pack(fill="x", pady=(0, 10))
+        banner.pack(fill="x", pady=(0, 4))
         self.lbl_count=tk.Label(banner,text="오늘 접수: 0건",font=(FONT,12,"bold"),fg=ACCENT)
         self.lbl_count.pack(side="left")
         ttk.Button(banner,text="📊 마감 & 엑셀 생성",command=self.finalize,style="Accent.TButton").pack(side="right")
+        ttk.Button(banner,text="🗑 선택 삭제",command=self.del_pending).pack(side="right",padx=(0,6))
+        ttk.Button(banner,text="✏️ 선택 수정",command=self.edit_pending).pack(side="right",padx=(0,6))
+        plist_cols=("번호","수취인","상품","금액","실무게(lbs)")
+        self.pending_tree=ttk.Treeview(self.inner,columns=plist_cols,show="headings",height=4)
+        for col,w in zip(plist_cols,[50,140,60,90,90]):
+            self.pending_tree.heading(col,text=col); self.pending_tree.column(col,width=w,anchor="w")
+        self.pending_tree.pack(fill="x", pady=(0, 10))
+        self.pending_tree.bind("<Double-1>",lambda e: self.edit_pending())
 
         LBL_W=10  # 라벨 고정 너비 (글자수)
 
@@ -675,7 +692,9 @@ class DirectEntryTab(tk.Frame):
         se=ttk.Entry(rf,textvariable=self.v_search)
         se.grid(row=0,column=1, padx=4, pady=4, sticky="ew")
         se.bind("<Return>",lambda e: self.search_customer())
-        ttk.Button(rf,text="🔍 찾기",command=self.search_customer).grid(row=0,column=2, padx=4, pady=4, sticky="w")
+        sbf=tk.Frame(rf); sbf.grid(row=0,column=2, padx=4, pady=4, sticky="w")
+        ttk.Button(sbf,text="🔍 찾기",command=self.search_customer).pack(side="left")
+        ttk.Button(sbf,text="🧹 지우기",command=self.clear_form).pack(side="left",padx=(4,0))
         self.lbl_visit=tk.Label(rf,text="")
         self.lbl_visit.grid(row=0,column=3,columnspan=3, padx=4, pady=4, sticky="w")
 
@@ -688,13 +707,11 @@ class DirectEntryTab(tk.Frame):
         tk.Label(rf,text="HP",width=LBL_W,anchor="e").grid(row=1,column=4, padx=4, pady=4, sticky="e")
         ttk.Entry(rf,textvariable=self.v_hp).grid(row=1,column=5, padx=10, pady=10, sticky="ew")
 
-        # 주민번호 / 개인통관고유부호
-        self.v_jumin=tk.StringVar(); self.v_pcc=tk.StringVar()
-        tk.Label(rf,text="주민번호",width=LBL_W,anchor="e").grid(row=2,column=0, padx=4, pady=4, sticky="e")
-        ttk.Entry(rf,textvariable=self.v_jumin).grid(row=2,column=1,sticky="ew")
-        tk.Label(rf,text="개인통관부호",width=LBL_W,anchor="e").grid(row=2,column=2, padx=4, pady=4, sticky="e")
-        ttk.Entry(rf,textvariable=self.v_pcc).grid(row=2,column=3,sticky="ew")
-        tk.Label(rf,text="※ P로 시작 12자리").grid(row=2,column=4,columnspan=2,sticky="w")
+        # 주민번호/개인통관부호 통합 입력 (하나의 칸)
+        self.v_jumin=tk.StringVar()
+        tk.Label(rf,text="주민/통관부호",width=LBL_W,anchor="e").grid(row=2,column=0, padx=4, pady=4, sticky="e")
+        ttk.Entry(rf,textvariable=self.v_jumin).grid(row=2,column=1,columnspan=3,sticky="ew")
+        tk.Label(rf,text="※ 주민번호 13자리 또는 P+12자리",fg="#888",font=(FONT,8)).grid(row=2,column=4,columnspan=2,sticky="w")
 
         # 우편번호
         self.v_zip=tk.StringVar()
@@ -712,11 +729,14 @@ class DirectEntryTab(tk.Frame):
         self._section(self.inner,"📦 보내는 사람 (발송인)")
         sf2=tk.Frame(self.inner); sf2.pack(fill="x", pady=(0, 8))
         sf2.columnconfigure(1,weight=1); sf2.columnconfigure(3,weight=1)
-        self.v_sender=tk.StringVar(); self.v_stel=tk.StringVar()
+        self.v_sender=tk.StringVar(); self.v_stel=tk.StringVar(); self.v_saddr=tk.StringVar()
         tk.Label(sf2,text="업체명/이름",width=LBL_W,anchor="e").grid(row=0,column=0, padx=4, pady=4, sticky="e")
         ttk.Entry(sf2,textvariable=self.v_sender).grid(row=0,column=1,sticky="ew")
         tk.Label(sf2,text="전화",width=LBL_W,anchor="e").grid(row=0,column=2, padx=4, pady=4, sticky="e")
-        ttk.Entry(sf2,textvariable=self.v_stel).grid(row=0,column=3, padx=10, pady=10, sticky="ew")
+        ttk.Entry(sf2,textvariable=self.v_stel).grid(row=0,column=3, padx=10, pady=4, sticky="ew")
+        tk.Label(sf2,text="발송인 주소",width=LBL_W,anchor="e").grid(row=1,column=0, padx=4, pady=4, sticky="e")
+        ttk.Entry(sf2,textvariable=self.v_saddr).grid(row=1,column=1,columnspan=3, padx=(0,10), pady=4, sticky="ew")
+        tk.Label(sf2,text=f"※ 비우면 기본 주소: {DEFAULT_ADDR}",fg="#888",font=(FONT,8)).grid(row=2,column=1,columnspan=3,sticky="w")
 
         # ── 상품 목록 ──
         self._section(self.inner,"🛍 상품 목록")
@@ -730,6 +750,8 @@ class DirectEntryTab(tk.Frame):
         ttk.Button(bf,text="+ 상품 추가",command=self.add_item_row).pack(side="left")
         ttk.Button(bf,text="📷 웹캠 촬영 (AI 인식)",command=self.webcam_recognize).pack(side="left")
         ttk.Button(bf,text="🖼 사진 파일 선택",command=self.photo_recognize).pack(side="left")
+        self.lbl_total=tk.Label(bf,text="총 신고금액: $0.00",font=(FONT,11,"bold"),fg="#00A651")
+        self.lbl_total.pack(side="right")
 
         # ── Preset 상품 버튼 패널 ──
         self._section(self.inner,"⭐ 자주 쓰는 상품 (Preset)")
@@ -742,21 +764,89 @@ class DirectEntryTab(tk.Frame):
         bf2=tk.Frame(self.inner); bf2.pack(fill="x", pady=(0, 8))
         bf2.columnconfigure(1,weight=1); bf2.columnconfigure(3,weight=1)
         bf2.columnconfigure(5,weight=1); bf2.columnconfigure(7,weight=1)
-        self.v_w=tk.StringVar(); self.v_l=tk.StringVar(); self.v_h=tk.StringVar(); self.v_rw=tk.StringVar()
-        for col,(lbl,var) in enumerate([("가로(in)",self.v_w),("세로(in)",self.v_l),("높이(in)",self.v_h),("실무게(lbs)",self.v_rw)]):
+        bf2.columnconfigure(9,weight=1)
+        self.v_w=tk.StringVar(); self.v_l=tk.StringVar(); self.v_h=tk.StringVar()
+        self.v_rw=tk.StringVar(); self.v_boxes=tk.StringVar(value="1")
+        for col,(lbl,var) in enumerate([("가로(in)",self.v_w),("세로(in)",self.v_l),("높이(in)",self.v_h),("실무게(lbs)",self.v_rw),("박스 수량",self.v_boxes)]):
             tk.Label(bf2,text=lbl,anchor="e").grid(row=0,column=col*2, padx=4, pady=4, sticky="e")
             ttk.Entry(bf2,textvariable=var,width=8).grid(row=0,column=col*2+1,sticky="ew")
         self.lbl_vol=tk.Label(bf2,text="부피무게: -")
-        self.lbl_vol.grid(row=1,column=0,columnspan=8, padx=10, pady=10, sticky="w")
+        self.lbl_vol.grid(row=1,column=0,columnspan=10, padx=10, pady=10, sticky="w")
         for v in [self.v_w,self.v_l,self.v_h]:
             v.trace_add("write",lambda *_:self.calc_vol())
 
-        # ── 접수 버튼 ──
-        ttk.Button(self.inner,text="✅  접수 완료 (임시 저장)",command=self.submit,cursor="hand2",
-                   style="Accent.TButton").pack(fill="x", pady=(8, 16))
+        # ── 접수 버튼 + 접수증 자동출력 옵션 ──
+        sub_row=tk.Frame(self.inner); sub_row.pack(fill="x", pady=(8, 16))
+        self.v_autoprint=tk.BooleanVar(value=bool(self.app.cfg.get("auto_receipt",False)))
+        def _save_autoprint():
+            self.app.cfg["auto_receipt"]=self.v_autoprint.get(); save_cfg(self.app.cfg)
+        ttk.Checkbutton(sub_row,text="🖨 접수증 자동 출력",variable=self.v_autoprint,
+                        command=_save_autoprint).pack(side="left",padx=(0,10))
+        ttk.Button(sub_row,text="✅  접수 완료 (임시 저장)",command=self.submit,cursor="hand2",
+                   style="Accent.TButton").pack(side="left",fill="x",expand=True)
 
     def _section(self,parent,text):
         tk.Label(parent,text=text,font=(FONT,11,"bold"),fg=FG).pack(anchor="w", pady=(8, 2))
+
+    def refresh_pending_list(self):
+        for i in self.pending_tree.get_children(): self.pending_tree.delete(i)
+        for i,o in enumerate(self.pending_orders):
+            total=0
+            for it in o.get("items",[]):
+                try: total+=float(it.get("Value",0) or 0)
+                except: pass
+            self.pending_tree.insert("","end",iid=str(i),
+                values=(i+1,o.get("수취인",""),f"{len(o.get('items',[]))}개",f"${total:.2f}",o.get("실무게",0)))
+        self.lbl_count.config(text=f"오늘 접수: {len(self.pending_orders)}건")
+
+    def del_pending(self):
+        sel=self.pending_tree.selection()
+        if not sel: messagebox.showwarning("주의","삭제할 접수 건을 목록에서 선택하세요."); return
+        o=self.pending_orders[int(sel[0])]
+        if not messagebox.askyesno("접수 삭제",f"'{o.get('수취인','')}' 접수 건을 삭제할까요?"): return
+        self.pending_orders.pop(int(sel[0]))
+        save_pending(self.pending_orders)
+        self.refresh_pending_list()
+
+    def edit_pending(self):
+        """접수 건을 폼으로 다시 불러와 수정 (수정 후 '접수 완료'로 재등록)"""
+        sel=self.pending_tree.selection()
+        if not sel: messagebox.showwarning("주의","수정할 접수 건을 목록에서 선택하세요."); return
+        o=self.pending_orders.pop(int(sel[0]))
+        save_pending(self.pending_orders)
+        self.refresh_pending_list()
+        self.clear_form()
+        self.v_name.set(o.get("수취인","")); self.v_tel.set(o.get("수취인TEL",""))
+        self.v_hp.set(o.get("수취인HP","")); self.v_jumin.set(o.get("주민번호",""))
+        self.v_zip.set(o.get("우편번호","")); self.v_addr.set(o.get("주소",""))
+        self.v_sender.set(o.get("업체명","")); self.v_stel.set(o.get("업체TEL",""))
+        saddr=o.get("업체주소","")
+        self.v_saddr.set("" if saddr==DEFAULT_ADDR else saddr)
+        self.v_rw.set(str(o.get("실무게","") or ""))
+        self.v_w.set(str(o.get("가로","") or "")); self.v_l.set(str(o.get("세로","") or ""))
+        self.v_h.set(str(o.get("높이","") or "")); self.v_boxes.set(str(o.get("포장개수",1)))
+        for (row,*_) in self.item_rows:
+            if row.winfo_exists(): row.destroy()
+        self.item_rows=[]
+        for it in (o.get("items") or [{}]):
+            self.add_item_row(name=it.get("내용물",""),qty=str(it.get("PCS",1)),
+                              price=str(it.get("Unit_Value","") or ""),hs=str(it.get("hs_code","") or ""),
+                              site=it.get("구입사이트","amazon.com"))
+        if not self.item_rows: self.add_item_row()
+        self.update_total()
+
+    def update_total(self):
+        if not hasattr(self,"lbl_total"): return
+        total=0
+        for (row,vn,vq,vp,vh,vs) in self.item_rows:
+            if not row.winfo_exists(): continue
+            try: total+=float(vp.get() or 0)*int(vq.get() or 1)
+            except: pass
+        limit=float(self.app.cfg.get("tax_limit",200))
+        if total>limit:
+            self.lbl_total.config(text=f"총 신고금액: ${total:.2f}  ⚠️ 면세한도(${limit:.0f}) 초과",fg="#E5001A")
+        else:
+            self.lbl_total.config(text=f"총 신고금액: ${total:.2f}",fg="#00A651")
 
     def build_preset_buttons(self):
         for w in self.preset_frame.winfo_children(): w.destroy()
@@ -791,6 +881,7 @@ class DirectEntryTab(tk.Frame):
         tk.Label(row,text=str(idx),width=3).pack(side="left")
         vn=tk.StringVar(value=name); vq=tk.StringVar(value=qty)
         vp=tk.StringVar(value=price); vh=tk.StringVar(value=hs); vs=tk.StringVar(value=site)
+        for v_ in (vq,vp): v_.trace_add("write",lambda *_: self.update_total())
 
         name_entry=ttk.Entry(row,textvariable=vn,width=32)
         name_entry.pack(side="left")
@@ -832,6 +923,7 @@ class DirectEntryTab(tk.Frame):
         name_entry.bind("<Return>",on_name_focusout)
 
         self.item_rows.append((row,vn,vq,vp,vh,vs))
+        self.update_total()
 
     def del_item(self,row_frame,idx):
         if len(self.item_rows)<=1: return
@@ -841,6 +933,7 @@ class DirectEntryTab(tk.Frame):
         for i,(row,*_) in enumerate(self.item_rows,1):
             first=row.winfo_children()[0]
             if isinstance(first,tk.Label): first.config(text=str(i))
+        self.update_total()
 
     def calc_vol(self):
         try:
@@ -869,7 +962,7 @@ class DirectEntryTab(tk.Frame):
                       relief="flat",highlightthickness=1,highlightbackground="#DDD")
         lb.pack(fill="both",expand=True,padx=12,pady=4)
         for r in results:
-            _,name,phone,phone2,zipcode,address,jumin,sender,stel,vc,lv,_ = r
+            _,name,phone,phone2,zipcode,address,jumin,sender,stel,saddr,vc,lv,_ = r
             addr_short=(address or "")[:22]
             phone_m=re.sub(r"(\d{3})-?(\d{3,4})-?(\d{4})",lambda m:f"{m.group(1)}-{m.group(2)}-****",phone or "")
             lb.insert("end",f"  {name}  |  {phone_m}  |  {addr_short}  |  방문 {vc}회  (마지막: {lv})")
@@ -880,16 +973,16 @@ class DirectEntryTab(tk.Frame):
         ttk.Button(win,text="이 고객으로 선택",command=select,style="Accent.TButton").pack(padx=12,pady=(4,12),fill="x")
 
     def fill_customer(self,row):
-        _id,name,phone,phone2,zipcode,address,jumin,sender,stel,vc,lv,top_items=row
+        _id,name,phone,phone2,zipcode,address,jumin,sender,stel,saddr,vc,lv,top_items=row
         self.v_name.set(name or "")
         self.v_tel.set(phone or "")
         self.v_hp.set(phone2 or "")
         self.v_zip.set(zipcode or "")
         self.v_addr.set(address or "")
         self.v_jumin.set(jumin or "")
-        self.v_pcc.set("")  # 개인통관부호는 매번 새로 입력
         self.v_sender.set(sender or "")
         self.v_stel.set(stel or "")
+        self.v_saddr.set("" if (saddr or "")==DEFAULT_ADDR else (saddr or ""))
         self.lbl_visit.config(text=f"✓ 방문 {vc}회  마지막: {lv}")
         try:
             items=json.loads(top_items) if top_items else []
@@ -1077,6 +1170,16 @@ class DirectEntryTab(tk.Frame):
             if not messagebox.askyesno("HS CODE 수량 경고",
                 f"{msg}\n\n수량이 6개를 초과하는 품목이 있습니다.\n그래도 접수하시겠습니까?"):
                 return
+        # ── 면세 한도 체크 ──
+        total_value=0
+        for it in items:
+            try: total_value+=float(it.get("Value",0) or 0)
+            except: pass
+        limit=float(self.app.cfg.get("tax_limit",200))
+        if total_value>limit:
+            if not messagebox.askyesno("면세 한도 초과",
+                f"총 신고금액 ${total_value:.2f} — 면세 한도(${limit:.0f})를 초과했습니다.\n"
+                f"통관 시 관세/부가세가 부과될 수 있습니다.\n\n그대로 접수하시겠습니까?"): return
         try: rw=float(self.v_rw.get())  # lbs 그대로 저장
         except: rw=0
         try:
@@ -1085,11 +1188,15 @@ class DirectEntryTab(tk.Frame):
             h=float(self.v_h.get())
             vol=round(w*l*h/166,2)  # inch 그대로 ÷166
         except: w=l=h=0; vol=0
-        jumin=self.v_jumin.get().strip(); pcc=self.v_pcc.get().strip()
-        if pcc and not re.fullmatch(r"[Pp]\d{12}",pcc):
-            if not messagebox.askyesno("개인통관부호 확인",
-                f"'{pcc}' 형식이 올바르지 않아 보입니다.\n(P + 숫자 12자리)\n\n그대로 접수할까요?"): return
-        if pcc and not jumin: jumin=pcc  # 주민번호 없으면 개인통관부호로 통관
+        # 주민번호(13자리) 또는 개인통관부호(P+12자리) — 한 칸으로 입력
+        idnum=self.v_jumin.get().strip()
+        if idnum and not (re.fullmatch(r"\d{6}-?\d{7}",idnum) or re.fullmatch(r"[Pp]\d{12}",idnum)):
+            if not messagebox.askyesno("주민/통관부호 확인",
+                f"'{idnum}' 형식이 올바르지 않아 보입니다.\n(주민번호 13자리 또는 P+숫자 12자리)\n\n그대로 접수할까요?"): return
+        jumin=idnum
+        pcc=idnum if re.fullmatch(r"[Pp]\d{12}",idnum or "") else ""
+        try: boxes=max(1,int(self.v_boxes.get()))
+        except: boxes=1
         order={
             "날짜":datetime.date.today().strftime("%m-%d-%Y"),
             "수취인":name,"수취인TEL":self.v_tel.get().strip(),
@@ -1097,28 +1204,32 @@ class DirectEntryTab(tk.Frame):
             "개인통관부호":pcc,
             "우편번호":self.v_zip.get().strip(),"주소":self.v_addr.get().strip(),
             "업체명":self.v_sender.get().strip(),"업체TEL":self.v_stel.get().strip(),
-            "업체주소":DEFAULT_ADDR,"실무게":rw,"부피무게":vol,
-            "가로":w,"세로":l,"높이":h,"포장개수":1,"items":items
+            "업체주소":self.v_saddr.get().strip() or DEFAULT_ADDR,"실무게":rw,"부피무게":vol,
+            "가로":w,"세로":l,"높이":h,"포장개수":boxes,"items":items
         }
         self.pending_orders.append(order)
         save_pending(self.pending_orders)
         cnt=len(self.pending_orders)
-        self.lbl_count.config(text=f"오늘 접수: {cnt}건")
-        # 접수증 프린트 여부 확인
-        if messagebox.askyesno("접수 완료",f"✅ {name} 님 접수 완료!\n오늘 총 {cnt}건 대기 중\n\n접수증을 프린트할까요?"):
+        self.refresh_pending_list()
+        self.lbl_count.config(text=f"오늘 접수: {cnt}건  |  ✅ {name} 님 접수 완료")
+        # 접수증 자동 출력 (체크박스 설정 — 매번 묻지 않음)
+        if self.v_autoprint.get():
             order["_order_num"]=f"{get_next_order()+cnt-1:04d}"
             print_receipt(order)
         self.clear_form()
 
     def clear_form(self):
-        for v in [self.v_name,self.v_tel,self.v_hp,self.v_jumin,self.v_pcc,self.v_zip,
-                  self.v_addr,self.v_sender,self.v_stel,self.v_rw,self.v_w,self.v_l,self.v_h,self.v_search]:
+        for v in [self.v_name,self.v_tel,self.v_hp,self.v_jumin,self.v_zip,
+                  self.v_addr,self.v_sender,self.v_stel,self.v_saddr,
+                  self.v_rw,self.v_w,self.v_l,self.v_h,self.v_search]:
             v.set("")
+        self.v_boxes.set("1")
         self.lbl_visit.config(text=""); self.lbl_vol.config(text="부피무게: -")
         for (row,*_) in self.item_rows:
             if row.winfo_exists(): row.destroy()
         self.item_rows=[]
         self.add_item_row()
+        self.update_total()
 
     def finalize(self):
         if not self.pending_orders:
@@ -1136,7 +1247,7 @@ class DirectEntryTab(tk.Frame):
                 sp=sp.replace(".xlsx",f"_{n}.xlsx")
             rows,s_ord,e_ord=make_excel(self.pending_orders,sp,self.app.cfg.get("code","SHIPTOKOREA"))
             self.pending_orders=[]; save_pending([])
-            self.lbl_count.config(text="오늘 접수: 0건")
+            self.refresh_pending_list()
             if hasattr(self.app,"stats_tab"): self.app.stats_tab.refresh()
             if messagebox.askyesno("완료",f"✅ 엑셀 저장 완료!\n\n고객: {cnt}명  |  주문: {s_ord:04d}~{e_ord:04d}\n파일: {Path(sp).name}\n\n파일을 여시겠습니까?"):
                 open_path(sp)
@@ -1382,7 +1493,7 @@ class DBTab(tk.Frame):
         conn=sqlite3.connect(str(DB_PATH))
         c=conn.cursor()
         c.execute("""SELECT c.id,c.name,c.phone,c.phone2,c.zipcode,c.address,c.jumin,
-                            c.sender_name,c.sender_tel,
+                            c.sender_name,c.sender_tel,c.sender_addr,
                             COUNT(o.id),MAX(o.order_date),c.top_items
                      FROM customers c
                      LEFT JOIN orders o ON o.customer_id=c.id
@@ -1402,10 +1513,10 @@ class DBTab(tk.Frame):
         # DB에서 전체 정보 불러오기
         conn=sqlite3.connect(str(DB_PATH))
         c=conn.cursor()
-        c.execute("SELECT name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel FROM customers WHERE id=?",(cid,))
+        c.execute("SELECT name,phone,phone2,jumin,zipcode,address,sender_name,sender_tel,sender_addr FROM customers WHERE id=?",(cid,))
         row=c.fetchone(); conn.close()
         if not row: return
-        name,phone,phone2,jumin,zipcode,address,sender,stel=row
+        name,phone,phone2,jumin,zipcode,address,sender,stel,saddr=row
 
         # 수정 팝업창
         win=tk.Toplevel(self); win.title("고객 정보 수정"); win.geometry("540x300")
@@ -1427,7 +1538,7 @@ class DBTab(tk.Frame):
         row_field(0,"이름","전화(TEL)","name","phone",name,phone)
         row_field(1,"HP","주민번호","phone2","jumin",phone2,jumin)
         row_field(2,"우편번호","업체명","zipcode","sender",zipcode,sender)
-        row_field(3,"업체TEL","","stel","",stel,"")
+        row_field(3,"업체TEL","발송인주소","stel","saddr",stel,saddr)
 
         # 주소 (전체 폭)
         tk.Label(frm,text="주소",anchor="e",width=10).grid(row=4,column=0, padx=4, pady=4, sticky="e")
@@ -1437,12 +1548,13 @@ class DBTab(tk.Frame):
         def save_edit():
             conn2=sqlite3.connect(str(DB_PATH))
             conn2.execute("""UPDATE customers SET
-                name=?,phone=?,phone2=?,jumin=?,zipcode=?,address=?,sender_name=?,sender_tel=?
+                name=?,phone=?,phone2=?,jumin=?,zipcode=?,address=?,sender_name=?,sender_tel=?,sender_addr=?
                 WHERE id=?""",
                 (fields["name"].get().strip(), fields["phone"].get().strip(),
                  fields["phone2"].get().strip(), fields["jumin"].get().strip(),
                  fields["zipcode"].get().strip(), fields["address"].get().strip(),
-                 fields["sender"].get().strip(), fields["stel"].get().strip(), cid))
+                 fields["sender"].get().strip(), fields["stel"].get().strip(),
+                 fields["saddr"].get().strip(), cid))
             conn2.commit(); conn2.close()
             messagebox.showinfo("완료","고객 정보가 수정됐습니다.")
             win.destroy()
@@ -1461,7 +1573,7 @@ class DBTab(tk.Frame):
         conn=sqlite3.connect(str(DB_PATH))
         c=conn.cursor()
         c.execute("""SELECT c.id,c.name,c.phone,c.phone2,c.zipcode,c.address,c.jumin,
-                            c.sender_name,c.sender_tel,
+                            c.sender_name,c.sender_tel,c.sender_addr,
                             COUNT(o.id) as visit_count,
                             MAX(o.order_date) as last_visit,
                             c.top_items
@@ -1479,7 +1591,7 @@ class DBTab(tk.Frame):
     def _fill_tree(self,rows):
         for item in self.tree.get_children(): self.tree.delete(item)
         for r in rows:
-            _id,name,phone,phone2,zipcode,address,jumin,sender,stel,vc,lv,top=r
+            _id,name,phone,phone2,zipcode,address,jumin,sender,stel,saddr,vc,lv,top=r
             try: items=", ".join(json.loads(top)[:3]) if top else ""
             except: items=""
             # 개인정보 마스킹
