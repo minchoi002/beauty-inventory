@@ -18,6 +18,10 @@ try:
     from google.genai import types as genai_types
 except ImportError:
     install("google-genai")
+    # 구버전 google-generativeai가 이미 깔린 PC에서 namespace 캐시 충돌 방지
+    import importlib
+    importlib.invalidate_caches()
+    sys.modules.pop("google",None)
     from google import genai
     from google.genai import types as genai_types
 try:
