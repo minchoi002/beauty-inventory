@@ -672,10 +672,10 @@ class DirectEntryTab(tk.Frame):
         ttk.Button(banner,text="📊 마감 & 엑셀 생성",command=self.finalize,style="Accent.TButton").pack(side="right")
         ttk.Button(banner,text="🗑 선택 삭제",command=self.del_pending).pack(side="right",padx=(0,6))
         ttk.Button(banner,text="✏️ 선택 수정",command=self.edit_pending).pack(side="right",padx=(0,6))
-        plist_cols=("번호","수취인","상품","금액","실무게(lbs)")
+        plist_cols=("번호","수취인","주소","금액","실무게(lbs)")
         self.pending_tree=ttk.Treeview(self.inner,columns=plist_cols,show="headings",height=4)
-        for col,w in zip(plist_cols,[50,140,60,90,90]):
-            self.pending_tree.heading(col,text=col); self.pending_tree.column(col,width=w,anchor="w")
+        for col,w in zip(plist_cols,[50,120,180,80,80]):
+            self.pending_tree.heading(col,text=col); self.pending_tree.column(col,width=w,anchor="center")
         self.pending_tree.pack(fill="x", pady=(0, 10))
         self.pending_tree.bind("<Double-1>",lambda e: self.edit_pending())
 
@@ -796,7 +796,7 @@ class DirectEntryTab(tk.Frame):
                 try: total+=float(it.get("Value",0) or 0)
                 except: pass
             self.pending_tree.insert("","end",iid=str(i),
-                values=(i+1,o.get("수취인",""),f"{len(o.get('items',[]))}개",f"${total:.2f}",o.get("실무게",0)))
+                values=(i+1,o.get("수취인",""),o.get("주소",""),f"${total:.2f}",o.get("실무게",0)))
         self.lbl_count.config(text=f"오늘 접수: {len(self.pending_orders)}건")
 
     def del_pending(self):
@@ -1249,6 +1249,7 @@ class DirectEntryTab(tk.Frame):
             self.pending_orders=[]; save_pending([])
             self.refresh_pending_list()
             if hasattr(self.app,"stats_tab"): self.app.stats_tab.refresh()
+            if hasattr(self.app,"db_tab"): self.app.db_tab.show_all()
             if messagebox.askyesno("완료",f"✅ 엑셀 저장 완료!\n\n고객: {cnt}명  |  주문: {s_ord:04d}~{e_ord:04d}\n파일: {Path(sp).name}\n\n파일을 여시겠습니까?"):
                 open_path(sp)
         except Exception as e:
