@@ -842,7 +842,7 @@ class DirectEntryTab(tk.Frame):
             if not row.winfo_exists(): continue
             try: total+=float(vp.get() or 0)*int(vq.get() or 1)
             except: pass
-        limit=float(self.app.cfg.get("tax_limit",200))
+        limit=float(self.app.cfg.get("tax_limit",150))
         if total>limit:
             self.lbl_total.config(text=f"총 신고금액: ${total:.2f}  ⚠️ 면세한도(${limit:.0f}) 초과",fg="#E5001A")
         else:
@@ -1175,7 +1175,7 @@ class DirectEntryTab(tk.Frame):
         for it in items:
             try: total_value+=float(it.get("Value",0) or 0)
             except: pass
-        limit=float(self.app.cfg.get("tax_limit",200))
+        limit=float(self.app.cfg.get("tax_limit",150))
         if total_value>limit:
             if not messagebox.askyesno("면세 한도 초과",
                 f"총 신고금액 ${total_value:.2f} — 면세 한도(${limit:.0f})를 초과했습니다.\n"
