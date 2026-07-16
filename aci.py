@@ -820,8 +820,7 @@ class DirectEntryTab(tk.Frame):
         self.v_hp.set(o.get("수취인HP","")); self.v_jumin.set(o.get("주민번호",""))
         self.v_zip.set(o.get("우편번호","")); self.v_addr.set(o.get("주소",""))
         self.v_sender.set(o.get("업체명","")); self.v_stel.set(o.get("업체TEL",""))
-        saddr=o.get("업체주소","")
-        self.v_saddr.set("" if saddr==DEFAULT_ADDR else saddr)
+        self.v_saddr.set(o.get("업체주소",""))
         self.v_rw.set(str(o.get("실무게","") or ""))
         self.v_w.set(str(o.get("가로","") or "")); self.v_l.set(str(o.get("세로","") or ""))
         self.v_h.set(str(o.get("높이","") or "")); self.v_boxes.set(str(o.get("포장개수",1)))
@@ -982,7 +981,7 @@ class DirectEntryTab(tk.Frame):
         self.v_jumin.set(jumin or "")
         self.v_sender.set(sender or "")
         self.v_stel.set(stel or "")
-        self.v_saddr.set("" if (saddr or "")==DEFAULT_ADDR else (saddr or ""))
+        self.v_saddr.set(saddr or "")
         self.lbl_visit.config(text=f"✓ 방문 {vc}회  마지막: {lv}")
         try:
             items=json.loads(top_items) if top_items else []
