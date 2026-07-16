@@ -1638,9 +1638,9 @@ class StatsTab(tk.Frame):
         # 월별 접수 현황
         self._section("📅 월별 접수 현황")
         mf=tk.Frame(self); mf.pack(fill="x", pady=(0, 10))
-        mcols=("년월","접수건수","고객수","신규고객","매출($)")
+        mcols=("년월","접수건수","고객수","신규고객")
         self.m_tree=ttk.Treeview(mf,columns=mcols,show="headings",height=6)
-        for col,w in zip(mcols,[100,80,80,80,100]):
+        for col,w in zip(mcols,[120,100,100,100]):
             self.m_tree.heading(col,text=col); self.m_tree.column(col,width=w,anchor="center")
         self.m_tree.pack(fill="x")
 
@@ -1656,9 +1656,9 @@ class StatsTab(tk.Frame):
         # 단골 순위
         self._section("🏆 단골 TOP 20")
         rf=tk.Frame(self); rf.pack(fill="both",expand=True, pady=(0, 10))
-        rcols=("순위","이름","전화","방문횟수","총매출($)","마지막방문","자주보낸상품")
+        rcols=("순위","이름","전화","방문횟수","마지막방문","자주보낸상품")
         self.r_tree=ttk.Treeview(rf,columns=rcols,show="headings",height=8)
-        for col,w in zip(rcols,[40,80,110,70,80,90,180]):
+        for col,w in zip(rcols,[50,90,120,80,100,210]):
             self.r_tree.heading(col,text=col); self.r_tree.column(col,width=w,anchor="center")
         rvsb=ttk.Scrollbar(rf,orient="vertical",command=self.r_tree.yview)
         self.r_tree.configure(yscrollcommand=rvsb.set)
@@ -1707,7 +1707,7 @@ class StatsTab(tk.Frame):
             cf.pack(side="left",expand=True,fill="x",padx=4)
             tk.Label(cf,text=title,bg="white",fg="#777",font=(FONT,9)).pack(pady=(10, 2))
             tk.Label(cf,text=val,bg="white",fg=color,font=(FONT,15,"bold")).pack(pady=(0, 10))
-        # 월별 현황 (신규고객·매출 포함)
+        # 월별 현황 (신규고객 포함)
         for item in self.m_tree.get_children(): self.m_tree.delete(item)
         conn=sqlite3.connect(str(DB_PATH))
         c=conn.cursor()
@@ -1721,17 +1721,9 @@ class StatsTab(tk.Frame):
                      GROUP BY c.id""")
         for ym,n in c.fetchall():
             new_counts[ym]=new_counts.get(ym,0)+1
-        rev_by_month={}
-        c.execute("SELECT strftime('%Y-%m',order_date) as ym, items_json FROM orders")
-        for ym,ij in c.fetchall():
-            try:
-                for it in json.loads(ij or "[]"):
-                    rev_by_month[ym]=rev_by_month.get(ym,0)+float(it.get("Value",0) or 0)
-            except: pass
         for ym,cnt,ucnt in monthly_rows:
             nc=new_counts.get(ym,0)
-            rv=rev_by_month.get(ym,0)
-            self.m_tree.insert("","end",values=(ym,f"{cnt}건",f"{ucnt}명",f"{nc}명",f"${rv:,.0f}"))
+            self.m_tree.insert("","end",values=(ym,f"{cnt}건",f"{ucnt}명",f"{nc}명"))
 
         # 이달 신규 고객
         for item in self.n_tree.get_children(): self.n_tree.delete(item)
@@ -1748,16 +1740,9 @@ class StatsTab(tk.Frame):
             except: items=""
             self.n_tree.insert("","end",values=(name,phone_m,fv or "",items))
 
-        # 단골 TOP 20 (총매출 포함)
+        # 단골 TOP 20
         for item in self.r_tree.get_children(): self.r_tree.delete(item)
-        rev_by_cust={}
-        c.execute("SELECT customer_id, items_json FROM orders")
-        for cid,ij in c.fetchall():
-            try:
-                for it in json.loads(ij or "[]"):
-                    rev_by_cust[cid]=rev_by_cust.get(cid,0)+float(it.get("Value",0) or 0)
-            except: pass
-        c.execute("""SELECT c.id, c.name, c.phone,
+        c.execute("""SELECT c.name, c.phone,
                             COUNT(o.id) as visit_count,
                             MAX(o.order_date) as last_visit,
                             c.top_items
@@ -1766,12 +1751,11 @@ class StatsTab(tk.Frame):
                      GROUP BY c.id
                      ORDER BY visit_count DESC LIMIT 20""")
         for i,row in enumerate(c.fetchall(),1):
-            cid,name,phone,vc,lv,top=row
+            name,phone,vc,lv,top=row
             phone_m=re.sub(r"(\d{3})-?(\d{3,4})-?(\d{4})",lambda m:f"{m.group(1)}-{m.group(2)}-****",phone or "")
             try: items=", ".join(json.loads(top)[:3]) if top else ""
             except: items=""
-            rv=rev_by_cust.get(cid,0)
-            self.r_tree.insert("","end",values=(i,name,phone_m,f"{vc}회",f"${rv:,.0f}",lv or "",items))
+            self.r_tree.insert("","end",values=(i,name,phone_m,f"{vc}회",lv or "",items))
         conn.close()
 
     def do_backup(self):
